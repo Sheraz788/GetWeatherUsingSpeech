@@ -44,4 +44,5 @@
         vestibulum. Fusce dictum libero quis erat maximus, vitae volutpat diam dignissim.
     </string>
     <string name="fetch_weather_using_speech">Fetch Weather Using Speech</string>
+    <string name="start_listening">Say a City Name</string>
 </resources>

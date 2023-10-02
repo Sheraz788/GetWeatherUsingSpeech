@@ -1,25 +1,36 @@
 package com.user.getweatherusingspeechapp;
 
+import android.content.Intent;
 import android.os.Bundle;
-
-import com.google.android.material.snackbar.Snackbar;
-
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.Observer;
+import androidx.lifecycle.ViewModelProvider;
 
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.view.View;
-
-import androidx.core.view.WindowCompat;
-import androidx.navigation.NavController;
-import androidx.navigation.Navigation;
-import androidx.navigation.ui.AppBarConfiguration;
-import androidx.navigation.ui.NavigationUI;
+import android.widget.Toast;
 
 import com.user.getweatherusingspeechapp.databinding.ActivityMainBinding;
+import com.user.getweatherusingspeechapp.datasource.ApiClient;
+import com.user.getweatherusingspeechapp.datasource.WeatherApiService;
+import com.user.getweatherusingspeechapp.models.WeatherData;
+import com.user.getweatherusingspeechapp.repositories.WeatherRepository;
+import com.user.getweatherusingspeechapp.viewmodel.WeatherViewModel;
+import com.user.getweatherusingspeechapp.viewmodel.WeatherViewModelProviderFactory;
+
+import java.util.ArrayList;
+import java.util.Locale;
+
+import retrofit2.Retrofit;
 
 public class MainActivity extends AppCompatActivity {
 
-    private AppBarConfiguration appBarConfiguration;
     private ActivityMainBinding binding;
+    private static final int SPEECH_REQUEST_CODE = 1;
+    private SpeechRecognizer speechRecognizer;
+
+    private WeatherViewModel weatherViewModel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,25 +40,92 @@ public class MainActivity extends AppCompatActivity {
         setContentView(binding.getRoot());
 
         setSupportActionBar(binding.toolbar);
+        getSupportActionBar().setDisplayShowTitleEnabled(false);
 
-        NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
-        appBarConfiguration = new AppBarConfiguration.Builder(navController.getGraph()).build();
-        NavigationUI.setupActionBarWithNavController(this, navController, appBarConfiguration);
 
-        binding.fab.setOnClickListener(new View.OnClickListener() {
+        //initialize classes
+        Retrofit apiClient = ApiClient.getInstance();
+        WeatherApiService weatherApiService = apiClient.create(WeatherApiService.class);
+
+        WeatherRepository weatherRepository = new WeatherRepository(weatherApiService);
+
+        weatherViewModel = new ViewModelProvider(this, new WeatherViewModelProviderFactory(weatherRepository)).get(WeatherViewModel.class);
+
+        setClickListeners();
+        observers();
+    }
+
+    private void setClickListeners(){
+
+        binding.microphoneButton.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onClick(View view) {
-                Snackbar.make(view, "Replace with your own action", Snackbar.LENGTH_LONG)
-                        .setAnchorView(R.id.fab)
-                        .setAction("Action", null).show();
+            public void onClick(View v) {
+                startVoiceRecognition();
             }
         });
+
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+
+    }
+
+    private void observers(){
+
+        weatherViewModel.getWeatherData().observe(this, new Observer<WeatherData>() {
+            @Override
+            public void onChanged(WeatherData weatherData) {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.weatherDescriptionTv.setText(weatherData.getWeatherDescription());
+                binding.currentTempTv.setText(weatherData.getTemperature() +"°C");
+            }
+        });
+
+        weatherViewModel.getError().observe(this, new Observer<String>() {
+            @Override
+            public void onChanged(String s) {
+                binding.progressBar.setVisibility(View.GONE);
+                Toast.makeText(getApplicationContext(), "Error while fetching weather", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+
+    }
+
+
+    private void startVoiceRecognition() {
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault());
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Say something...");
+
+        startActivityForResult(intent, SPEECH_REQUEST_CODE);
+    }
+
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+
+        if (requestCode == SPEECH_REQUEST_CODE && resultCode == RESULT_OK && data != null) {
+            ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
+            if (results != null && !results.isEmpty()) {
+                String spokenText = results.get(0);
+
+                //call weather api here
+
+                binding.cityNameTv.setText("Getting current weather for " + spokenText);
+                weatherViewModel.searchWeather(spokenText);
+                binding.progressBar.setVisibility(View.VISIBLE);
+
+            }
+        }
     }
 
     @Override
-    public boolean onSupportNavigateUp() {
-        NavController navController = Navigation.findNavController(this, R.id.nav_host_fragment_content_main);
-        return NavigationUI.navigateUp(navController, appBarConfiguration)
-                || super.onSupportNavigateUp();
+    protected void onDestroy() {
+        super.onDestroy();
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+        }
     }
+
 }
